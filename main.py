@@ -1,13 +1,15 @@
 import argparse
 import csv
 import os
-from collections import defaultdict, deque
+from collections import defaultdict
 
 
 class TrainRoutes:
 
     def __init__(self, routes: csv.DictReader) -> None:
-        self.paths, self.times = self._generate_possible_paths(routes)
+        self.paths = defaultdict(list)
+        self.times = {}
+        self._generate_possible_paths(routes)
 
     def get_shortest_path(self, start: str, end: str) -> str:
         """Finding the shortest path from start to end.
@@ -21,66 +23,62 @@ class TrainRoutes:
         if start == end:
             return 'Start is the end, nowhere to go.'
 
-        queue = deque([[start]])
-        while queue:
-            path = queue.popleft()
-            directions = self.paths.get(path[-1], [])
+        shortest_paths = {start: (None, 0)}
+        current_station = start
+        visited = set()
 
-            for direction in directions:
-                new_path = path.copy()
-                new_path.append(direction)
-                queue.append(new_path)
+        while current_station != end:
+            visited.add(current_station)
+            destinations = self.paths[current_station]
+            time_to_current_station = shortest_paths[current_station][1]
 
-                if direction != end:
-                    continue
+            for next_station in destinations:
+                direction = (current_station, next_station)
+                time = self.times[direction] + time_to_current_station
+                time_to_station = (current_station, time)
 
-                (
-                    total_stops, total_time
-                ) = self._get_overall_time_and_stops(new_path)
-                stops = 'stop' if total_stops == 1 else 'stops'
+                if next_station not in shortest_paths:
+                    shortest_paths[next_station] = time_to_station
+                else:
+                    current_fastest_time = shortest_paths[next_station][1]
+                    if current_fastest_time > time:
+                        shortest_paths[next_station] = time_to_station
 
-                return (
-                    f'Your trip from {start} to {end} includes {total_stops} '
-                    f'{stops} and will take {total_time} minutes.'
-                )
+            next_destinations = {
+                station: shortest_paths[station]
+                for station in shortest_paths if station not in visited
+            }
+            if not next_destinations:
+                return f'No routes from {start} to {end}.'
 
-        return f'No routes from {start} to {end}.'
+            current_station = min(
+                next_destinations, key=lambda k: next_destinations[k][1]
+            )
 
-    def _get_overall_time_and_stops(self, path: list[str]) -> tuple[int, int]:
-        """Calculate overall time and number of stops for the path.
+        total_stops = -2  # don't count start and end
+        total_time = shortest_paths[current_station][1]
+        while current_station is not None:
+            total_stops += 1
+            current_station = shortest_paths[current_station][0]
 
-        :param path: a list with path including all stops
+        stops = 'stop' if total_stops == 1 else 'stops'
 
-        :return: a tuple of total stops and total time
-        """
-        path_len = len(path)
-        total_stops = path_len - 2
-        total_time = 0
-        for i in range(path_len - 1):
-            total_time += self.times[(path[i], path[i + 1])]
+        return (
+            f'Your trip from {start} to {end} includes {total_stops} '
+            f'{stops} and will take {total_time} minutes.'
+        )
 
-        return total_stops, total_time
-
-    @staticmethod
-    def _generate_possible_paths(routes: csv.DictReader) -> tuple[dict, dict]:
+    def _generate_possible_paths(self, routes: csv.DictReader) -> None:
         """Convert routes to paths and times.
 
         :param routes: a DictReader object with rows as start, end and time
-
-        :return: a tuple of paths and time
-            paths: undirected graph, key as start and value as list
-            with all possible directions.
-            times: key as tuple with start - end and value as time
-            to get from start to end.
         """
-        paths = defaultdict(list)
-        times = {}
         for route in routes:
             start, end, time = route.values()
-            paths[start].append(end)
-            times[(start, end)] = int(time)
-
-        return paths, times
+            self.paths[start].append(end)
+            self.paths[end].append(start)
+            self.times[(start, end)] = int(time)
+            self.times[(end, start)] = int(time)
 
 
 def validate_file(file_path: str) -> bool:
